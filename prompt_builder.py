@@ -1,13 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Prompt‑Builder (Streamlit Web‑App) — mit Pflichtfeld‑Check, Mehrfachauswahl & Validierungen
-+ Quick Wins: Fortschritt, Auto‑Save/Load, JSON/MD‑Export, Presets
-===========================================================================================
-
-✅ Browserfähig, kein stdin/termios nötig.
-✅ Funktioniert lokal und in Hosting‑Umgebungen (Streamlit Cloud / HF Spaces).
-✅ Tests bleiben streamlit‑agnostisch (via `--test`).
+Prompt‑Builder (Streamlit Web‑App)
+— Pflichtfeld‑Check, Mehrfachauswahl, Validierungen
+— Quick Wins: Fortschritt, JSON/MD‑Export, Clipboard
+=====================================================
 
 Start lokal (Browser)
     python -m pip install streamlit
@@ -19,14 +16,10 @@ Tests (ohne Browser)
 Hinweise
 - Menü: **Bereich → Rolle → Auftrag → Felder** (dynamisch)
 - **Vor dem Generieren**: Checkliste fehlender Pflichtfelder; erst bei „grün“ wird der Prompt erzeugt.
-- **Mehrfachauswahl** (aktuell bei *Thema*, *Rahmen*)
+- **Mehrfachauswahl** (z. B. Thema, Rahmen; zusätzlich Kompetenzziel/Evaluationskriterium bei Praxisanleitung)
 - **Validierungen** (z. B. `Dauer (Minuten)` muss Zahl im gültigen Bereich sein)
-- **Quick Wins**: Sidebar‑Fortschritt, **Zwischenstand speichern/laden**, **JSON/Markdown‑Export**, **Presets**
-
-Deployment‑Hinweis
-- Erstelle eine `requirements.txt` mit:
-    streamlit>=1.33
-- Lege diese Datei und `prompt_builder.py` in dein Repo. In Streamlit Cloud als Hauptdatei `prompt_builder.py` wählen.
+- **Keine JSON‑Presets und kein Speichern/Laden per Datei** (bewusst weggelassen)
+- **Exports**: TXT, JSON, Markdown + **Clipboard‑Button**
 """
 from __future__ import annotations
 
@@ -37,7 +30,6 @@ import textwrap
 from pathlib import Path
 import argparse
 import json
-import time
 
 # ------------------------------------------------------------
 # 1) KONFIGURATION (Domainbaum & Template)
@@ -64,19 +56,52 @@ DOMAIN_TREE: Dict[str, Any] = {
                             "Dauer (Minuten)": "freitext",
                         },
                         "Dokumentation Beobachtung": {
-                            "Beobachtungsmethode": ["Anekdote", "Lerngeschichte", "Checkliste"],
+                            "Beobachtungsmethode": ["Anekdote", "Lerngeschichte", "Checkliste", "Soziogramm", "Zeit-Stichprobe"],
                             "Situation": "freitext",
                             "Interpretation": "freitext",
                             "Förderideen": "freitext",
                         },
-                    },
+                        "Elternabend planen": {
+                            "Anlass": ["Kennenlernen", "Sprachförderung", "Mediennutzung", "Übergänge"],
+                            "Ziel des Gesprächs": "freitext",
+                            "Dauer (Minuten)": "freitext",
+                            "Materialien": "freitext",
+                        },
+                        "Portfolio-Eintrag erstellen": {
+                            "Situation": "freitext",
+                            "Interpretation": "freitext",
+                            "Förderideen": "freitext",
+                            "Materialien": "freitext"
+                        },
+                        "Übergang Kita-Schule vorbereiten": {
+                            "Anlass": ["Schulreife", "Elterninfo", "Kooperation GS"],
+                            "Ziel des Gesprächs": "freitext",
+                            "Förderideen": "freitext",
+                            "Dauer (Minuten)": "freitext"
+                        }
+                    }
                 },
                 "Praxisanleiter:in": {
                     "Auftrag": {
                         "Anleitung planen": {
-                            "Kompetenzziel": "freitext",
+                            "Kompetenzziel": [
+                                "Beobachtungsbogen anwenden",
+                                "Elterngespräche strukturieren",
+                                "Dokumentation nach QM-Standard",
+                                "Angebotsplanung mit Differenzierung"
+                            ],
                             "Aufgabenbeschreibung": "freitext",
-                            "Evaluationskriterium": "freitext",
+                            "Evaluationskriterium": [
+                                "Checkliste vollständig",
+                                "SMART-Ziel erreicht",
+                                "Peer-Feedback positiv",
+                                "Sicherheitsregeln eingehalten"
+                            ]
+                        },
+                        "Feedbackgespräch führen": {
+                            "Kompetenzziel": ["Selbstreflexion anregen", "Zielvereinbarung formulieren", "Beobachtungskriterien nutzen"],
+                            "Aufgabenbeschreibung": "freitext",
+                            "Evaluationskriterium": ["Reflexion nachvollziehbar", "Konkret vereinbart", "Nächstes Ziel definiert"]
                         }
                     }
                 },
@@ -147,21 +172,32 @@ DOMAIN_META: Dict[str, Dict[str, Any]] = {
         "multi": [],
         "numeric": {},
     },
-    "Anleitung planen": {
-        "required": ["Bereich", "Rolle", "Auftrag", "Kompetenzziel", "Aufgabenbeschreibung", "Evaluationskriterium"],
+    "Elternabend planen": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Anlass", "Ziel des Gesprächs", "Dauer (Minuten)"],
+        "multi": [],
+        "numeric": {"Dauer (Minuten)": {"min": 15, "max": 240}},
+    },
+    "Portfolio-Eintrag erstellen": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Situation", "Interpretation"],
         "multi": [],
         "numeric": {},
     },
+    "Übergang Kita-Schule vorbereiten": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Anlass", "Ziel des Gesprächs"],
+        "multi": [],
+        "numeric": {"Dauer (Minuten)": {"min": 1, "max": 240}},
+    },
+    "Anleitung planen": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Kompetenzziel", "Aufgabenbeschreibung", "Evaluationskriterium"],
+        "multi": ["Kompetenzziel", "Evaluationskriterium"],
+        "numeric": {},
+    },
+    "Feedbackgespräch führen": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Kompetenzziel", "Aufgabenbeschreibung", "Evaluationskriterium"],
+        "multi": ["Kompetenzziel", "Evaluationskriterium"],
+        "numeric": {},
+    },
 }
-
-# Optional: Presets laden (falls vorhanden)
-PRESETS: Dict[str, Dict[str, Dict[str, Any]]] = {}
-try:
-    p = Path("presets.json")
-    if p.exists():
-        PRESETS = json.loads(p.read_text(encoding="utf-8"))
-except Exception:
-    PRESETS = {}
 
 # ------------------------------------------------------------
 # 2) MODELL & HILFSFUNKTIONEN (Streamlit‑agnostisch)
@@ -258,51 +294,24 @@ def progress_ratio(selections: Dict[str, Any]) -> tuple[int, int]:
 
 def run_streamlit_app() -> None:
     import streamlit as st
+    import streamlit.components.v1 as components
 
     st.set_page_config(page_title="Prompt‑Builder", page_icon="🧭", layout="wide", initial_sidebar_state="expanded")
     st.title("🧭 Geführter Prompt‑Builder")
-    st.caption("Bereich → Rolle → Auftrag → Felder. Export als Text/JSON/Markdown. Auto‑Save in der Sidebar.")
+    st.caption("Bereich → Rolle → Auftrag → Felder. Export als Text/JSON/Markdown. Clipboard‑Button inklusive.")
 
     if "state" not in st.session_state:
         st.session_state.state = WizardState()
 
     state: WizardState = st.session_state.state
 
-    # --- Sidebar: Fortschritt, Presets, Save/Load ---
+    # --- Sidebar: nur Fortschritt & JSON‑Ansicht ---
     with st.sidebar:
         st.subheader("⚙️ Optionen")
-        # Fortschritt
         d, t = progress_ratio(state.selections)
         ratio = (d / t) if t else 0.0
         st.progress(ratio)
         st.caption(f"Fortschritt Pflichtfelder: {d}/{t}" if t else "Noch kein Auftrag gewählt")
-
-        # Presets
-        ap = state.selections.get("Auftrag", "")
-        if PRESETS.get(ap):
-            preset_name = st.selectbox("Vorlage laden", ["(keine)"] + list(PRESETS[ap].keys()))
-            if preset_name and preset_name != "(keine)":
-                for k, v in PRESETS[ap][preset_name].items():
-                    state.selections[k] = v
-                st.success(f"Vorlage '{preset_name}' geladen.")
-
-        # Auto‑Save (Zwischenstand)
-        if st.button("💾 Zwischenstand speichern"):
-            Path("saves").mkdir(exist_ok=True)
-            fn = f"saves/{int(time.time())}_draft.json"
-            Path(fn).write_text(json.dumps(state.selections, ensure_ascii=False, indent=2), encoding="utf-8")
-            st.success(f"Gespeichert: {fn}")
-        up = st.file_uploader("Zwischenstand laden (JSON)", type=["json"], accept_multiple_files=False)
-        if up is not None:
-            try:
-                loaded = json.loads(up.read().decode("utf-8"))
-                if isinstance(loaded, dict):
-                    state.selections = loaded
-                    st.success("Zwischenstand geladen.")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Laden fehlgeschlagen: {e}")
-
         st.markdown("---")
         if st.checkbox("Eingaben als JSON anzeigen"):
             st.json(state.selections)
@@ -398,14 +407,13 @@ def run_streamlit_app() -> None:
                     if key == "Dauer (Minuten)":
                         raw = st.text_input(key, value=str(state.selections.get(key, "")))
                         state.selections[key] = raw
-                        # leichte Live‑Validierung
+                        # Live‑Validierung
+                        rng = meta.get("numeric", {}).get(key)
                         if raw:
                             try:
                                 num = float(str(raw).replace(",", "."))
-                                rng = meta.get("numeric", {}).get(key)
-                                if rng:
-                                    if num < rng.get("min", -1e9) or num > rng.get("max", 1e9):
-                                        st.warning(f"Zahl außerhalb des gültigen Bereichs ({rng.get('min','?')}–{rng.get('max','?')}).")
+                                if rng and (num < rng.get("min", -1e9) or num > rng.get("max", 1e9)):
+                                    st.warning(f"Zahl außerhalb des gültigen Bereichs ({rng.get('min','?')}–{rng.get('max','?')}).")
                             except Exception:
                                 st.warning("Bitte eine Zahl eingeben (z. B. 30).")
                         elif key in meta.get("required", []):
@@ -446,17 +454,27 @@ def run_streamlit_app() -> None:
         prompt_text = state.compose_prompt()
         st.markdown("## Ergebnis")
         st.code(prompt_text)
-        # Downloads: TXT, JSON, Markdown
-        st.download_button(
-            "⬇️ TXT", data=prompt_text, file_name="prompt_output.txt", mime="text/plain"
-        )
-        st.download_button(
-            "⬇️ JSON", data=json.dumps(state.selections, ensure_ascii=False, indent=2), file_name="prompt.json", mime="application/json"
-        )
+        # Downloads & Clipboard
+        st.download_button("⬇️ TXT", data=prompt_text, file_name="prompt_output.txt", mime="text/plain")
+        st.download_button("⬇️ JSON", data=json.dumps(state.selections, ensure_ascii=False, indent=2), file_name="prompt.json", mime="application/json")
         md = f"## Prompt\n\n````\n{prompt_text}\n````\n"
-        st.download_button(
-            "⬇️ Markdown", data=md, file_name="prompt.md", mime="text/markdown"
-        )
+        st.download_button("⬇️ Markdown", data=md, file_name="prompt.md", mime="text/markdown")
+        if st.button("📋 In die Zwischenablage kopieren"):
+            components.html(f"""
+            <script>
+            const txt = {json.dumps("" + prompt_text)};
+            navigator.clipboard.writeText(txt).then(() => {{
+                const el = document.createElement('div');
+                el.style.position='fixed'; el.style.bottom='12px'; el.style.right='12px';
+                el.style.background='#16a34a'; el.style.color='white'; el.style.padding='8px 12px'; el.style.borderRadius='6px';
+                el.style.fontFamily='system-ui, -apple-system, Segoe UI, Roboto, sans-serif'; el.style.fontSize='12px';
+                el.innerText = 'In die Zwischenablage kopiert';
+                document.body.appendChild(el);
+                setTimeout(() => document.body.removeChild(el), 1200);
+            }}).catch(err => {{ console.error('Clipboard failed', err); }});
+            </script>
+            """, height=0)
+            st.success("In die Zwischenablage kopiert.")
 
 
 # ------------------------------------------------------------
@@ -575,7 +593,6 @@ def _run_cli() -> None:
     args, _ = parser.parse_known_args()
     if args.test:
         sys.exit(run_tests())
-    # Wenn nicht Test: versuche, Streamlit‑App direkt zu starten (wenn unter Streamlit ausgeführt)
     try:
         import streamlit as st  # noqa: F401
         run_streamlit_app()
