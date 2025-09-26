@@ -2,11 +2,12 @@
 # -*- coding: utf-8 -*-
 """
 Prompt‑Builder (Streamlit Web‑App) — mit Pflichtfeld‑Check, Mehrfachauswahl & Validierungen
-=========================================================================================
++ Quick Wins: Fortschritt, Auto‑Save/Load, JSON/MD‑Export, Presets
+===========================================================================================
 
-✅ Browserfähig, kein stdin/termios nötig. 
+✅ Browserfähig, kein stdin/termios nötig.
 ✅ Funktioniert lokal und in Hosting‑Umgebungen (Streamlit Cloud / HF Spaces).
-✅ Enthält eingebaute Tests, die *ohne* Streamlit importierbar sind.
+✅ Tests bleiben streamlit‑agnostisch (via `--test`).
 
 Start lokal (Browser)
     python -m pip install streamlit
@@ -20,6 +21,7 @@ Hinweise
 - **Vor dem Generieren**: Checkliste fehlender Pflichtfelder; erst bei „grün“ wird der Prompt erzeugt.
 - **Mehrfachauswahl** (aktuell bei *Thema*, *Rahmen*)
 - **Validierungen** (z. B. `Dauer (Minuten)` muss Zahl im gültigen Bereich sein)
+- **Quick Wins**: Sidebar‑Fortschritt, **Zwischenstand speichern/laden**, **JSON/Markdown‑Export**, **Presets**
 
 Deployment‑Hinweis
 - Erstelle eine `requirements.txt` mit:
@@ -35,6 +37,7 @@ import textwrap
 from pathlib import Path
 import argparse
 import json
+import time
 
 # ------------------------------------------------------------
 # 1) KONFIGURATION (Domainbaum & Template)
@@ -151,6 +154,15 @@ DOMAIN_META: Dict[str, Dict[str, Any]] = {
     },
 }
 
+# Optional: Presets laden (falls vorhanden)
+PRESETS: Dict[str, Dict[str, Dict[str, Any]]] = {}
+try:
+    p = Path("presets.json")
+    if p.exists():
+        PRESETS = json.loads(p.read_text(encoding="utf-8"))
+except Exception:
+    PRESETS = {}
+
 # ------------------------------------------------------------
 # 2) MODELL & HILFSFUNKTIONEN (Streamlit‑agnostisch)
 # ------------------------------------------------------------
@@ -224,6 +236,22 @@ def validate(selections: Dict[str, Any]) -> List[str]:
     return issues
 
 
+def progress_ratio(selections: Dict[str, Any]) -> tuple[int, int]:
+    meta = DOMAIN_META.get(selections.get("Auftrag", ""), {})
+    required = meta.get("required", [])
+    if not required:
+        return 0, 0
+    done = 0
+    for k in required:
+        v = selections.get(k)
+        if isinstance(v, list):
+            if v:
+                done += 1
+        else:
+            if v not in (None, ""):
+                done += 1
+    return done, len(required)
+
 # ------------------------------------------------------------
 # 3) STREAMLIT‑UI (wird nur aufgerufen, wenn unter Streamlit ausgeführt)
 # ------------------------------------------------------------
@@ -231,16 +259,55 @@ def validate(selections: Dict[str, Any]) -> List[str]:
 def run_streamlit_app() -> None:
     import streamlit as st
 
-    st.set_page_config(page_title="Prompt‑Builder", page_icon="🧭", layout="wide")
+    st.set_page_config(page_title="Prompt‑Builder", page_icon="🧭", layout="wide", initial_sidebar_state="expanded")
     st.title("🧭 Geführter Prompt‑Builder")
-    st.caption("Bereich → Rolle → Auftrag → Felder. Export als Text oder JSON.")
+    st.caption("Bereich → Rolle → Auftrag → Felder. Export als Text/JSON/Markdown. Auto‑Save in der Sidebar.")
 
     if "state" not in st.session_state:
         st.session_state.state = WizardState()
 
     state: WizardState = st.session_state.state
 
-    # --- Spaltenlayout
+    # --- Sidebar: Fortschritt, Presets, Save/Load ---
+    with st.sidebar:
+        st.subheader("⚙️ Optionen")
+        # Fortschritt
+        d, t = progress_ratio(state.selections)
+        ratio = (d / t) if t else 0.0
+        st.progress(ratio)
+        st.caption(f"Fortschritt Pflichtfelder: {d}/{t}" if t else "Noch kein Auftrag gewählt")
+
+        # Presets
+        ap = state.selections.get("Auftrag", "")
+        if PRESETS.get(ap):
+            preset_name = st.selectbox("Vorlage laden", ["(keine)"] + list(PRESETS[ap].keys()))
+            if preset_name and preset_name != "(keine)":
+                for k, v in PRESETS[ap][preset_name].items():
+                    state.selections[k] = v
+                st.success(f"Vorlage '{preset_name}' geladen.")
+
+        # Auto‑Save (Zwischenstand)
+        if st.button("💾 Zwischenstand speichern"):
+            Path("saves").mkdir(exist_ok=True)
+            fn = f"saves/{int(time.time())}_draft.json"
+            Path(fn).write_text(json.dumps(state.selections, ensure_ascii=False, indent=2), encoding="utf-8")
+            st.success(f"Gespeichert: {fn}")
+        up = st.file_uploader("Zwischenstand laden (JSON)", type=["json"], accept_multiple_files=False)
+        if up is not None:
+            try:
+                loaded = json.loads(up.read().decode("utf-8"))
+                if isinstance(loaded, dict):
+                    state.selections = loaded
+                    st.success("Zwischenstand geladen.")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Laden fehlgeschlagen: {e}")
+
+        st.markdown("---")
+        if st.checkbox("Eingaben als JSON anzeigen"):
+            st.json(state.selections)
+
+    # --- Hauptbereich ---
     col_left, col_right = st.columns([2, 1], gap="large")
 
     with col_left:
@@ -256,7 +323,6 @@ def run_streamlit_app() -> None:
             state.selections["Bereich"] = sel_bereich or ""
             for k in ["Rolle", "Auftrag"]:
                 state.selections.pop(k, None)
-            # Unterfelder leeren
             for k in list(state.selections.keys()):
                 if k not in {"Bereich", "Rolle", "Auftrag"}:
                     state.selections.pop(k, None)
@@ -317,10 +383,14 @@ def run_streamlit_app() -> None:
                         preselect = current if isinstance(current, list) else ([current] if current else [])
                         val = st.multiselect(key, options=opts, default=preselect)
                         state.selections[key] = val
+                        if key in meta.get("required", []) and not val:
+                            st.warning("Pflichtfeld: bitte mindestens eine Option wählen.")
                     else:
                         idx = (opts.index(current) + 1) if isinstance(current, str) and current in opts else 0
                         val = st.selectbox(key, options=[""] + opts, index=idx)
                         state.selections[key] = val or ""
+                        if key in meta.get("required", []) and not val:
+                            st.warning("Pflichtfeld: bitte auswählen.")
                 elif sub == "freitext":
                     is_long = any(token in key.lower() for token in [
                         "beschreibung", "material", "besonder", "situation", "interpretation", "förder", "profil", "ziel"
@@ -328,6 +398,18 @@ def run_streamlit_app() -> None:
                     if key == "Dauer (Minuten)":
                         raw = st.text_input(key, value=str(state.selections.get(key, "")))
                         state.selections[key] = raw
+                        # leichte Live‑Validierung
+                        if raw:
+                            try:
+                                num = float(str(raw).replace(",", "."))
+                                rng = meta.get("numeric", {}).get(key)
+                                if rng:
+                                    if num < rng.get("min", -1e9) or num > rng.get("max", 1e9):
+                                        st.warning(f"Zahl außerhalb des gültigen Bereichs ({rng.get('min','?')}–{rng.get('max','?')}).")
+                            except Exception:
+                                st.warning("Bitte eine Zahl eingeben (z. B. 30).")
+                        elif key in meta.get("required", []):
+                            st.warning("Pflichtfeld: bitte ausfüllen.")
                     elif is_long:
                         val = st.text_area(key, value=state.selections.get(key, ""), height=100)
                         state.selections[key] = val
@@ -352,10 +434,6 @@ def run_streamlit_app() -> None:
             st.write("\n".join(f"• {line}" for line in state.to_preview_lines()))
         else:
             st.caption("Noch nichts erfasst.")
-        st.markdown("---")
-        show_json = st.checkbox("Eingaben als JSON anzeigen")
-        if show_json:
-            st.json(state.selections)
 
     # Validierung & Ergebnis
     want_output = preview_clicked or gen_clicked
@@ -368,11 +446,16 @@ def run_streamlit_app() -> None:
         prompt_text = state.compose_prompt()
         st.markdown("## Ergebnis")
         st.code(prompt_text)
+        # Downloads: TXT, JSON, Markdown
         st.download_button(
-            "⬇️ Als TXT herunterladen",
-            data=prompt_text,
-            file_name="prompt_output.txt",
-            mime="text/plain",
+            "⬇️ TXT", data=prompt_text, file_name="prompt_output.txt", mime="text/plain"
+        )
+        st.download_button(
+            "⬇️ JSON", data=json.dumps(state.selections, ensure_ascii=False, indent=2), file_name="prompt.json", mime="application/json"
+        )
+        md = f"## Prompt\n\n````\n{prompt_text}\n````\n"
+        st.download_button(
+            "⬇️ Markdown", data=md, file_name="prompt.md", mime="text/markdown"
         )
 
 
@@ -497,9 +580,7 @@ def _run_cli() -> None:
         import streamlit as st  # noqa: F401
         run_streamlit_app()
     except Exception as e:
-        # Fallback: Hinweis im Terminal
         print("Dieses Modul ist für Streamlit gedacht. Starte die Web‑App mit:\n\n    streamlit run prompt_builder.py\n\nOder führe Tests aus mit:\n\n    python prompt_builder.py --test\n")
-        # Zusätzlich Fehlerausgabe, falls in Hosting‑Logs hilfreich:
         print(f"[Info] Streamlit konnte nicht gestartet werden: {e}")
 
 
