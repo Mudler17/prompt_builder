@@ -3,8 +3,9 @@
 """
 Prompt-Builder (Streamlit Web-App)
 — Pflichtfeld-Check, Mehrfachauswahl, Validierungen
-— Datenschutz-Hinweis, Clipboard-Fallback
-— Erweiterte Beispiele für Aufträge/Kompetenzziele/Evaluationskriterien/Beobachtungsmethoden
+— Sehr auffälliger Datenschutz-Hinweis + zusätzliche Mini-Hinweise an sensiblen Feldern
+— Rollen: Erzieher:in, Praxisanleiter:in, Kita-Leitung
+— Clipboard-Fallback, JSON/MD/TXT-Export
 — Tests (ohne Streamlit-Import) via --test
 
 Start (Browser)
@@ -17,7 +18,7 @@ Tests (ohne Browser)
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 import sys
 import textwrap
 import argparse
@@ -31,7 +32,7 @@ DOMAIN_TREE: Dict[str, Any] = {
     "Bereich": {
         "Elementarpädagogik": {
             "Rolle": {
-                "Erzieherin": {
+                "Erzieher:in": {
                     "Auftrag": {
                         "Konzept Kinderaktivität": {
                             "Zielgruppe": ["U3", "3–4 Jahre", "5–6 Jahre", "Vorschule", "Gemischt", "Integrativ"],
@@ -143,6 +144,42 @@ DOMAIN_TREE: Dict[str, Any] = {
                         }
                     }
                 },
+                "Kita-Leitung": {
+                    "Auftrag": {
+                        "Teammeeting vorbereiten": {
+                            "Anlass": ["Jour fixe", "Konzeptfortschritt", "Fallbesprechung anonymisiert", "Projektstart/-abschluss"],
+                            "Ziel des Gesprächs": "freitext",
+                            "Dauer (Minuten)": "freitext",
+                            "Materialien": "freitext"
+                        },
+                        "Dienstplanung erstellen": {
+                            "Rahmen": ["Regelbetrieb", "Vertretung", "Ferienbetrieb", "Fortbildungstag"],
+                            "Besonderheiten": "freitext",
+                            "Dauer (Minuten)": "freitext"
+                        },
+                        "Konzept weiterentwickeln": {
+                            "Thema": ["Partizipation", "Inklusion", "Sprachbildung", "Bewegung", "Medienbildung", "Transitionen"],
+                            "Ziel des Gesprächs": "freitext",
+                            "Materialien": "freitext"
+                        },
+                        "Qualitätszirkel dokumentieren": {
+                            "Beobachtungsmethode": ["Audit-Checkliste", "Kollegiale Beratung", "PDCA-Review"],
+                            "Situation": "freitext",
+                            "Interpretation": "freitext",
+                            "Evaluationskriterium": ["Maßnahmen definiert", "Standards eingehalten", "Wirkung überprüfbar"]
+                        },
+                        "Jahresplanung erstellen": {
+                            "Rahmen": ["Projekte", "Feste/Feiern", "Elterntermine", "Fortbildungen"],
+                            "Materialien": "freitext",
+                            "Besonderheiten": "freitext"
+                        },
+                        "Krisenkommunikation vorbereiten": {
+                            "Anlass": ["Störung Betrieb", "Unfall anonymisiert", "Pandemie-Maßnahme", "IT-Ausfall"],
+                            "Ziel des Gesprächs": "freitext",
+                            "Materialien": "freitext"
+                        }
+                    }
+                }
             }
         }
     }
@@ -192,6 +229,7 @@ DEFAULT_KEYS = [
 
 # Meta-Definitionen pro Auftrag: Pflichtfelder, Mehrfachauswahl-Keys, Numeric-Constraints
 DOMAIN_META: Dict[str, Dict[str, Any]] = {
+    # Erzieher:in
     "Konzept Kinderaktivität": {
         "required": ["Bereich", "Rolle", "Auftrag", "Zielgruppe", "Thema", "Rahmen", "Dauer (Minuten)"],
         "multi": ["Thema", "Rahmen"],
@@ -237,6 +275,8 @@ DOMAIN_META: Dict[str, Dict[str, Any]] = {
         "multi": [],
         "numeric": {},
     },
+
+    # Praxisanleiter:in
     "Anleitung planen": {
         "required": ["Bereich", "Rolle", "Auftrag", "Kompetenzziel", "Aufgabenbeschreibung", "Evaluationskriterium"],
         "multi": ["Kompetenzziel", "Evaluationskriterium"],
@@ -254,6 +294,38 @@ DOMAIN_META: Dict[str, Dict[str, Any]] = {
     },
     "Anleitung reflektieren": {
         "required": ["Bereich", "Rolle", "Auftrag", "Kompetenzziel", "Aufgabenbeschreibung"],
+        "multi": [],
+        "numeric": {},
+    },
+
+    # Kita-Leitung
+    "Teammeeting vorbereiten": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Anlass", "Ziel des Gesprächs"],
+        "multi": [],
+        "numeric": {"Dauer (Minuten)": {"min": 10, "max": 240}},
+    },
+    "Dienstplanung erstellen": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Rahmen"],
+        "multi": ["Rahmen"],
+        "numeric": {"Dauer (Minuten)": {"min": 5, "max": 240}},
+    },
+    "Konzept weiterentwickeln": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Thema"],
+        "multi": ["Thema"],
+        "numeric": {},
+    },
+    "Qualitätszirkel dokumentieren": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Beobachtungsmethode", "Situation", "Evaluationskriterium"],
+        "multi": ["Evaluationskriterium"],
+        "numeric": {},
+    },
+    "Jahresplanung erstellen": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Rahmen"],
+        "multi": ["Rahmen"],
+        "numeric": {},
+    },
+    "Krisenkommunikation vorbereiten": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Anlass", "Ziel des Gesprächs"],
         "multi": [],
         "numeric": {},
     },
@@ -349,7 +421,7 @@ def progress_ratio(selections: Dict[str, Any]) -> tuple[int, int]:
     return done, len(required)
 
 # ------------------------------------------------------------
-# 3) STREAMLIT-UI (wird nur aufgerufen, wenn unter Streamlit ausgeführt)
+# 3) STREAMLIT-UI
 # ------------------------------------------------------------
 
 def run_streamlit_app() -> None:
@@ -357,13 +429,21 @@ def run_streamlit_app() -> None:
     import streamlit.components.v1 as components
 
     st.set_page_config(page_title="Prompt-Builder", page_icon="🧭", layout="wide", initial_sidebar_state="expanded")
+
+    # Sehr auffälliger Datenschutz-Hinweis (stark formatiert)
+    st.markdown("""
+    <div style="
+        border: 2px solid #ef4444; background: #fee2e2; color:#991b1b;
+        padding: 12px 16px; border-radius: 8px; font-weight: 600; margin-bottom: 8px;">
+      ⚠️ Wichtig (Datenschutz): Keine personenbezogenen Daten eingeben und nicht so formulieren,
+      dass ein Rückschluss auf ein bestimmtes Kind möglich ist.
+    </div>
+    """, unsafe_allow_html=True)
+
     st.title("🧭 Geführter Prompt-Builder — Elementarpädagogik")
-    st.warning("**Wichtig (Datenschutz):** Keine personenbezogenen Daten eingeben und nicht so formulieren, "
-               "dass ein Rückschluss auf ein bestimmtes Kind möglich ist.")
 
     if "state" not in st.session_state:
         st.session_state.state = WizardState()
-
     state: WizardState = st.session_state.state
 
     # --- Sidebar: Fortschritt & JSON-Ansicht ---
@@ -383,14 +463,20 @@ def run_streamlit_app() -> None:
     with col_left:
         st.subheader("Schritte")
 
+        # 0) Zwischenstand (fest in der linken Spalte, immer sichtbar)
+        with st.container(border=True):
+            st.markdown("**Zwischenstand**")
+            if state.selections:
+                st.write("\n".join(f"• {line}" for line in state.to_preview_lines()))
+            else:
+                st.caption("Noch nichts erfasst.")
+
         # 1) Bereich (fest)
         state.selections.setdefault("Bereich", "Elementarpädagogik")
         st.caption("Bereich: **Elementarpädagogik** (fest)")
 
         # 2) Rolle
-        rollen = []
-        if state.selections.get("Bereich"):
-            rollen = list(DOMAIN_TREE["Bereich"][state.selections["Bereich"]].get("Rolle", {}).keys())
+        rollen = list(DOMAIN_TREE["Bereich"]["Elementarpädagogik"]["Rolle"].keys())
         sel_rolle = st.selectbox(
             "Rolle",
             options=[""] + rollen,
@@ -406,11 +492,10 @@ def run_streamlit_app() -> None:
 
         # 3) Auftrag
         auftraege = []
-        if state.selections.get("Bereich") and state.selections.get("Rolle"):
+        if state.selections.get("Rolle"):
             auftraege = list(
-                DOMAIN_TREE["Bereich"][state.selections["Bereich"]]["Rolle"][state.selections["Rolle"]]
-                .get("Auftrag", {})
-                .keys()
+                DOMAIN_TREE["Bereich"]["Elementarpädagogik"]["Rolle"][state.selections["Rolle"]]
+                .get("Auftrag", {}).keys()
             )
         sel_auftrag = st.selectbox(
             "Auftrag",
@@ -425,12 +510,12 @@ def run_streamlit_app() -> None:
 
         # 4) Felder (Blattebene)
         leaf_node: Dict[str, Any] = {}
-        if state.selections.get("Bereich") and state.selections.get("Rolle") and state.selections.get("Auftrag"):
-            leaf_node = (
-                DOMAIN_TREE["Bereich"][state.selections["Bereich"]]["Rolle"][state.selections["Rolle"]]["Auftrag"][state.selections["Auftrag"]]
-            )
+        if state.selections.get("Rolle") and state.selections.get("Auftrag"):
+            leaf_node = DOMAIN_TREE["Bereich"]["Elementarpädagogik"]["Rolle"][state.selections["Rolle"]]["Auftrag"][state.selections["Auftrag"]]
 
         meta = DOMAIN_META.get(state.selections.get("Auftrag", ""), {"multi": [], "required": [], "numeric": {}})
+
+        sensitive_keys = {"Kind-Profil (Stärken/Bedarfe)", "Situation", "Interpretation"}  # Mini-Datenschutzhinweis
 
         if leaf_node:
             st.markdown("---")
@@ -472,9 +557,13 @@ def run_streamlit_app() -> None:
                     elif is_long:
                         val = st.text_area(key, value=state.selections.get(key, ""), height=100)
                         state.selections[key] = val
+                        if key in sensitive_keys:
+                            st.caption("Hinweis Datenschutz: bitte neutral/abstrahiert formulieren, keine personenbezogenen Details.")
                     else:
                         val = st.text_input(key, value=state.selections.get(key, ""))
                         state.selections[key] = val
+                        if key in sensitive_keys:
+                            st.caption("Hinweis Datenschutz: bitte neutral/abstrahiert formulieren, keine personenbezogenen Details.")
 
         st.markdown("---")
         colA, colB, colC = st.columns([1, 1, 1])
@@ -488,11 +577,10 @@ def run_streamlit_app() -> None:
             gen_clicked = st.button("✨ Prompt erzeugen", use_container_width=True)
 
     with col_right:
-        st.subheader("Zwischenstand")
-        if state.selections:
-            st.write("\n".join(f"• {line}" for line in state.to_preview_lines()))
-        else:
-            st.caption("Noch nichts erfasst.")
+        # rechte Spalte kann für zukünftige Hinweise frei bleiben
+        st.subheader("Hinweise")
+        st.write("- Fülle zuerst Rolle und Auftrag, dann die Details.")
+        st.write("- Pflichtfelder werden geprüft, bevor der Prompt erzeugt wird.")
 
     # Validierung & Ergebnis
     want_output = preview_clicked or gen_clicked
@@ -513,7 +601,7 @@ def run_streamlit_app() -> None:
         md = f"## Prompt\n\n````\n{prompt_text}\n````\n"
         st.download_button("⬇️ Markdown", data=md, file_name="prompt.md", mime="text/markdown")
 
-        # Kopieren: 1) st.code hat einen Copy-Button; 2) Fallback-Button unten (robust in iFrames)
+        # Kopieren: 1) st.code hat Copy-Button; 2) Fallback-Button (robust in iFrames)
         st.caption("Tipp: Im Code-Block oben gibt es einen Copy-Button. Falls der Browser blockt, nutze den Fallback unten.")
         components.html(f'''
         <div style="margin-top:8px">
@@ -531,9 +619,9 @@ def run_streamlit_app() -> None:
 # ------------------------------------------------------------
 
 def _test_compose_prompt_minimal() -> None:
-    ws = WizardState(selections={"Rolle": "Erzieherin", "Bereich": "Elementarpädagogik", "Auftrag": "Konzept Kinderaktivität"})
+    ws = WizardState(selections={"Rolle": "Erzieher:in", "Bereich": "Elementarpädagogik", "Auftrag": "Konzept Kinderaktivität"})
     out = ws.compose_prompt()
-    assert "Rolle: Erzieherin" in out
+    assert "Rolle: Erzieher:in" in out
     assert "Bereich: Elementarpädagogik" in out
     assert "Auftrag: Konzept Kinderaktivität" in out
 
@@ -556,13 +644,13 @@ def _test_domain_tree_structure() -> None:
     assert "Rolle" in DOMAIN_TREE["Bereich"]["Elementarpädagogik"]
 
 def _test_missing_fields_blank() -> None:
-    ws = WizardState(selections={"Rolle": "Erzieherin"})
+    ws = WizardState(selections={"Rolle": "Erzieher:in"})
     out = ws.compose_prompt()
-    assert "Rolle: Erzieherin" in out and "Bereich:" in out
+    assert "Rolle: Erzieher:in" in out and "Bereich:" in out
 
 def _test_multiline_freetext() -> None:
     ws = WizardState(selections={
-        "Rolle": "Erzieherin",
+        "Rolle": "Erzieher:in",
         "Bereich": "Elementarpädagogik",
         "Auftrag": "Konzept Kinderaktivität",
         "Materialien": "Papier\nStifte\nSchere",
@@ -571,25 +659,25 @@ def _test_multiline_freetext() -> None:
     assert "Papier" in out and "Stifte" in out and "Schere" in out
 
 def _test_build_steps_leaf_fields() -> None:
-    node = DOMAIN_TREE["Bereich"]["Elementarpädagogik"]["Rolle"]["Erzieherin"]["Auftrag"]["Konzept Kinderaktivität"]
+    node = DOMAIN_TREE["Bereich"]["Elementarpädagogik"]["Rolle"]["Erzieher:in"]["Auftrag"]["Konzept Kinderaktivität"]
     steps = build_steps_from_node(node)
     keys = [s["key"] for s in steps]
     for k in ["Zielgruppe", "Thema", "Rahmen", "Dauer (Minuten)"]:
         assert k in keys
 
 def _test_validate_core_and_numeric() -> None:
-    sel = {"Bereich": "Elementarpädagogik", "Rolle": "Erzieherin", "Auftrag": "Konzept Kinderaktivität", "Dauer (Minuten)": "0"}
+    sel = {"Bereich": "Elementarpädagogik", "Rolle": "Erzieher:in", "Auftrag": "Konzept Kinderaktivität", "Dauer (Minuten)": "0"}
     issues = validate(sel)
     assert any("Dauer (Minuten): muss ≥" in m for m in issues)
 
 def _test_validate_required_missing() -> None:
-    sel = {"Bereich": "Elementarpädagogik", "Rolle": "Erzieherin", "Auftrag": "Konzept Kinderaktivität"}
+    sel = {"Bereich": "Elementarpädagogik", "Rolle": "Erzieher:in", "Auftrag": "Konzept Kinderaktivität"}
     issues = validate(sel)
     assert any("Zielgruppe" in m for m in issues) and any("Thema" in m for m in issues)
 
 def _test_multiselect_storage() -> None:
     sel = {
-        "Bereich": "Elementarpädagogik", "Rolle": "Erzieherin", "Auftrag": "Konzept Kinderaktivität",
+        "Bereich": "Elementarpädagogik", "Rolle": "Erzieher:in", "Auftrag": "Konzept Kinderaktivität",
         "Thema": ["Sprache", "Motorik"], "Rahmen": ["Drinnen"], "Zielgruppe": "3–4 Jahre", "Dauer (Minuten)": "30"
     }
     issues = validate(sel)
