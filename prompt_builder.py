@@ -1,25 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Prompt‑Builder (Streamlit Web‑App)
-— Pflichtfeld‑Check, Mehrfachauswahl, Validierungen
-— Quick Wins: Fortschritt, JSON/MD‑Export, Clipboard
-=====================================================
+Prompt-Builder (Streamlit Web-App)
+— Pflichtfeld-Check, Mehrfachauswahl, Validierungen
+— Datenschutz-Hinweis, Clipboard-Fallback
+— Erweiterte Beispiele für Aufträge/Kompetenzziele/Evaluationskriterien/Beobachtungsmethoden
+— Tests (ohne Streamlit-Import) via --test
 
-Start lokal (Browser)
+Start (Browser)
     python -m pip install streamlit
     streamlit run prompt_builder.py
 
 Tests (ohne Browser)
     python prompt_builder.py --test
-
-Hinweise
-- Menü: **Bereich → Rolle → Auftrag → Felder** (dynamisch)
-- **Vor dem Generieren**: Checkliste fehlender Pflichtfelder; erst bei „grün“ wird der Prompt erzeugt.
-- **Mehrfachauswahl** (z. B. Thema, Rahmen; zusätzlich Kompetenzziel/Evaluationskriterium bei Praxisanleitung)
-- **Validierungen** (z. B. `Dauer (Minuten)` muss Zahl im gültigen Bereich sein)
-- **Keine JSON‑Presets und kein Speichern/Laden per Datei** (bewusst weggelassen)
-- **Exports**: TXT, JSON, Markdown + **Clipboard‑Button**
 """
 from __future__ import annotations
 
@@ -27,7 +20,6 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 import sys
 import textwrap
-from pathlib import Path
 import argparse
 import json
 
@@ -42,27 +34,36 @@ DOMAIN_TREE: Dict[str, Any] = {
                 "Erzieherin": {
                     "Auftrag": {
                         "Konzept Kinderaktivität": {
-                            "Zielgruppe": ["3–4 Jahre", "5–6 Jahre", "Gemischt"],
-                            "Thema": ["Sprache", "Motorik", "Sozialkompetenz", "Natur & Umwelt"],
-                            "Rahmen": ["Drinnen", "Draußen", "Projektwoche", "Tagesimpuls"],
+                            "Zielgruppe": ["U3", "3–4 Jahre", "5–6 Jahre", "Vorschule", "Gemischt", "Integrativ"],
+                            "Thema": [
+                                "Sprache", "Motorik", "Sozialkompetenz", "Natur & Umwelt",
+                                "Musik", "Mathematik", "Naturwissenschaft", "Kunst/Kreativität", "Emotionen"
+                            ],
+                            "Rahmen": [
+                                "Drinnen", "Draußen", "Kleingruppe", "Stationenlernen",
+                                "Projektwoche", "Tagesimpuls", "Exkursion"
+                            ],
                             "Dauer (Minuten)": "freitext",
                             "Materialien": "freitext",
                             "Besonderheiten": "freitext",
                         },
                         "Elterngespräch vorbereiten": {
-                            "Anlass": ["Entwicklungsgespräch", "Konfliktklärung", "Förderempfehlung"],
+                            "Anlass": ["Entwicklungsgespräch", "Konfliktklärung", "Förderempfehlung", "Übergabe", "Rückmeldung"],
                             "Kind-Profil (Stärken/Bedarfe)": "freitext",
                             "Ziel des Gesprächs": "freitext",
                             "Dauer (Minuten)": "freitext",
                         },
                         "Dokumentation Beobachtung": {
-                            "Beobachtungsmethode": ["Anekdote", "Lerngeschichte", "Checkliste", "Soziogramm", "Zeit-Stichprobe"],
+                            "Beobachtungsmethode": [
+                                "Anekdote", "Lerngeschichte", "Checkliste",
+                                "Soziogramm", "Zeit-Stichprobe", "Target-Child", "Narrativ"
+                            ],
                             "Situation": "freitext",
                             "Interpretation": "freitext",
                             "Förderideen": "freitext",
                         },
                         "Elternabend planen": {
-                            "Anlass": ["Kennenlernen", "Sprachförderung", "Mediennutzung", "Übergänge"],
+                            "Anlass": ["Kennenlernen", "Sprachförderung", "Mediennutzung", "Übergänge", "Partizipation"],
                             "Ziel des Gesprächs": "freitext",
                             "Dauer (Minuten)": "freitext",
                             "Materialien": "freitext",
@@ -74,9 +75,26 @@ DOMAIN_TREE: Dict[str, Any] = {
                             "Materialien": "freitext"
                         },
                         "Übergang Kita-Schule vorbereiten": {
-                            "Anlass": ["Schulreife", "Elterninfo", "Kooperation GS"],
+                            "Anlass": ["Schulreife", "Elterninfo", "Kooperation GS", "Übergabegespräch"],
                             "Ziel des Gesprächs": "freitext",
                             "Förderideen": "freitext",
+                            "Dauer (Minuten)": "freitext"
+                        },
+                        "Beobachtungsbogen auswerten": {
+                            "Beobachtungsmethode": ["PERIK", "Sismik", "Seldak", "Eigenes Raster"],
+                            "Situation": "freitext",
+                            "Interpretation": "freitext",
+                            "Förderideen": "freitext"
+                        },
+                        "Tagesdokumentation erstellen": {
+                            "Situation": "freitext",
+                            "Materialien": "freitext",
+                            "Besonderheiten": "freitext"
+                        },
+                        "Elternbrief verfassen": {
+                            "Anlass": ["Projektstart", "Projektabschluss", "Feste/Feiern", "Infos", "Erinnerung"],
+                            "Ziel des Gesprächs": "freitext",
+                            "Materialien": "freitext",
                             "Dauer (Minuten)": "freitext"
                         }
                     }
@@ -88,28 +106,45 @@ DOMAIN_TREE: Dict[str, Any] = {
                                 "Beobachtungsbogen anwenden",
                                 "Elterngespräche strukturieren",
                                 "Dokumentation nach QM-Standard",
-                                "Angebotsplanung mit Differenzierung"
+                                "Angebotsplanung mit Differenzierung",
+                                "Situationsanalyse durchführen",
+                                "Reflexionsgespräch moderieren"
                             ],
                             "Aufgabenbeschreibung": "freitext",
                             "Evaluationskriterium": [
                                 "Checkliste vollständig",
                                 "SMART-Ziel erreicht",
                                 "Peer-Feedback positiv",
-                                "Sicherheitsregeln eingehalten"
+                                "Sicherheitsregeln eingehalten",
+                                "Selbsteinschätzung stimmig",
+                                "Lernziel sichtbar"
                             ]
                         },
                         "Feedbackgespräch führen": {
-                            "Kompetenzziel": ["Selbstreflexion anregen", "Zielvereinbarung formulieren", "Beobachtungskriterien nutzen"],
+                            "Kompetenzziel": [
+                                "Selbstreflexion anregen", "Zielvereinbarung formulieren",
+                                "Beobachtungskriterien nutzen", "Ich-Botschaften anwenden"
+                            ],
                             "Aufgabenbeschreibung": "freitext",
-                            "Evaluationskriterium": ["Reflexion nachvollziehbar", "Konkret vereinbart", "Nächstes Ziel definiert"]
+                            "Evaluationskriterium": [
+                                "Reflexion nachvollziehbar", "Konkret vereinbart",
+                                "Nächstes Ziel definiert", "Protokoll vollständig"
+                            ]
+                        },
+                        "Praxisbesuch vorbereiten": {
+                            "Kompetenzziel": ["Unterrichtsgang strukturieren", "Feedbackkriterien festlegen", "Zeitmanagement planen"],
+                            "Aufgabenbeschreibung": "freitext",
+                            "Evaluationskriterium": ["Beobachtungsbogen vorbereitet", "Zeitplan eingehalten", "Abschlussgespräch dokumentiert"]
+                        },
+                        "Anleitung reflektieren": {
+                            "Kompetenzziel": ["Reflexionsmethoden anwenden", "Metareflexion leiten"],
+                            "Aufgabenbeschreibung": "freitext",
+                            "Evaluationskriterium": ["Reflexionstiefe ausreichend", "Konkrete nächste Schritte"]
                         }
                     }
                 },
             }
-        },
-        # Platzhalter für spätere Erweiterungen
-        "Schule": {},
-        "Jugendhilfe": {},
+        }
     }
 }
 
@@ -155,7 +190,7 @@ DEFAULT_KEYS = [
     "Förderideen","Kompetenzziel","Aufgabenbeschreibung","Evaluationskriterium"
 ]
 
-# Meta-Definitionen pro Auftrag: Pflichtfelder, Multi-Select-Keys, Numeric-Constraints
+# Meta-Definitionen pro Auftrag: Pflichtfelder, Mehrfachauswahl-Keys, Numeric-Constraints
 DOMAIN_META: Dict[str, Dict[str, Any]] = {
     "Konzept Kinderaktivität": {
         "required": ["Bereich", "Rolle", "Auftrag", "Zielgruppe", "Thema", "Rahmen", "Dauer (Minuten)"],
@@ -187,6 +222,21 @@ DOMAIN_META: Dict[str, Dict[str, Any]] = {
         "multi": [],
         "numeric": {"Dauer (Minuten)": {"min": 1, "max": 240}},
     },
+    "Beobachtungsbogen auswerten": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Beobachtungsmethode", "Interpretation"],
+        "multi": [],
+        "numeric": {},
+    },
+    "Tagesdokumentation erstellen": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Situation"],
+        "multi": [],
+        "numeric": {},
+    },
+    "Elternbrief verfassen": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Anlass"],
+        "multi": [],
+        "numeric": {},
+    },
     "Anleitung planen": {
         "required": ["Bereich", "Rolle", "Auftrag", "Kompetenzziel", "Aufgabenbeschreibung", "Evaluationskriterium"],
         "multi": ["Kompetenzziel", "Evaluationskriterium"],
@@ -197,10 +247,20 @@ DOMAIN_META: Dict[str, Dict[str, Any]] = {
         "multi": ["Kompetenzziel", "Evaluationskriterium"],
         "numeric": {},
     },
+    "Praxisbesuch vorbereiten": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Kompetenzziel", "Aufgabenbeschreibung"],
+        "multi": [],
+        "numeric": {},
+    },
+    "Anleitung reflektieren": {
+        "required": ["Bereich", "Rolle", "Auftrag", "Kompetenzziel", "Aufgabenbeschreibung"],
+        "multi": [],
+        "numeric": {},
+    },
 }
 
 # ------------------------------------------------------------
-# 2) MODELL & HILFSFUNKTIONEN (Streamlit‑agnostisch)
+# 2) MODELL & HILFSFUNKTIONEN (Streamlit-agnostisch)
 # ------------------------------------------------------------
 
 @dataclass
@@ -289,23 +349,24 @@ def progress_ratio(selections: Dict[str, Any]) -> tuple[int, int]:
     return done, len(required)
 
 # ------------------------------------------------------------
-# 3) STREAMLIT‑UI (wird nur aufgerufen, wenn unter Streamlit ausgeführt)
+# 3) STREAMLIT-UI (wird nur aufgerufen, wenn unter Streamlit ausgeführt)
 # ------------------------------------------------------------
 
 def run_streamlit_app() -> None:
     import streamlit as st
     import streamlit.components.v1 as components
 
-    st.set_page_config(page_title="Prompt‑Builder", page_icon="🧭", layout="wide", initial_sidebar_state="expanded")
-    st.title("🧭 Geführter Prompt‑Builder")
-    st.caption("Bereich → Rolle → Auftrag → Felder. Export als Text/JSON/Markdown. Clipboard‑Button inklusive.")
+    st.set_page_config(page_title="Prompt-Builder", page_icon="🧭", layout="wide", initial_sidebar_state="expanded")
+    st.title("🧭 Geführter Prompt-Builder — Elementarpädagogik")
+    st.warning("**Wichtig (Datenschutz):** Keine personenbezogenen Daten eingeben und nicht so formulieren, "
+               "dass ein Rückschluss auf ein bestimmtes Kind möglich ist.")
 
     if "state" not in st.session_state:
         st.session_state.state = WizardState()
 
     state: WizardState = st.session_state.state
 
-    # --- Sidebar: nur Fortschritt & JSON‑Ansicht ---
+    # --- Sidebar: Fortschritt & JSON-Ansicht ---
     with st.sidebar:
         st.subheader("⚙️ Optionen")
         d, t = progress_ratio(state.selections)
@@ -321,20 +382,10 @@ def run_streamlit_app() -> None:
 
     with col_left:
         st.subheader("Schritte")
-        # 1) Bereich
-        bereiche = list(DOMAIN_TREE.get("Bereich", {}).keys())
-        sel_bereich = st.selectbox(
-            "Bereich",
-            options=[""] + bereiche,
-            index=(bereiche.index(state.selections.get("Bereich")) + 1) if state.selections.get("Bereich") in bereiche else 0,
-        )
-        if sel_bereich != state.selections.get("Bereich"):
-            state.selections["Bereich"] = sel_bereich or ""
-            for k in ["Rolle", "Auftrag"]:
-                state.selections.pop(k, None)
-            for k in list(state.selections.keys()):
-                if k not in {"Bereich", "Rolle", "Auftrag"}:
-                    state.selections.pop(k, None)
+
+        # 1) Bereich (fest)
+        state.selections.setdefault("Bereich", "Elementarpädagogik")
+        st.caption("Bereich: **Elementarpädagogik** (fest)")
 
         # 2) Rolle
         rollen = []
@@ -407,7 +458,7 @@ def run_streamlit_app() -> None:
                     if key == "Dauer (Minuten)":
                         raw = st.text_input(key, value=str(state.selections.get(key, "")))
                         state.selections[key] = raw
-                        # Live‑Validierung
+                        # Live-Validierung
                         rng = meta.get("numeric", {}).get(key)
                         if raw:
                             try:
@@ -415,7 +466,7 @@ def run_streamlit_app() -> None:
                                 if rng and (num < rng.get("min", -1e9) or num > rng.get("max", 1e9)):
                                     st.warning(f"Zahl außerhalb des gültigen Bereichs ({rng.get('min','?')}–{rng.get('max','?')}).")
                             except Exception:
-                                st.warning("Bitte eine Zahl eingeben (z. B. 30).")
+                                st.warning("Bitte eine Zahl eingeben (z. B. 30).")
                         elif key in meta.get("required", []):
                             st.warning("Pflichtfeld: bitte ausfüllen.")
                     elif is_long:
@@ -454,31 +505,29 @@ def run_streamlit_app() -> None:
         prompt_text = state.compose_prompt()
         st.markdown("## Ergebnis")
         st.code(prompt_text)
+
         # Downloads & Clipboard
         st.download_button("⬇️ TXT", data=prompt_text, file_name="prompt_output.txt", mime="text/plain")
-        st.download_button("⬇️ JSON", data=json.dumps(state.selections, ensure_ascii=False, indent=2), file_name="prompt.json", mime="application/json")
+        st.download_button("⬇️ JSON", data=json.dumps(state.selections, ensure_ascii=False, indent=2),
+                           file_name="prompt.json", mime="application/json")
         md = f"## Prompt\n\n````\n{prompt_text}\n````\n"
         st.download_button("⬇️ Markdown", data=md, file_name="prompt.md", mime="text/markdown")
-        if st.button("📋 In die Zwischenablage kopieren"):
-            components.html(f"""
-            <script>
-            const txt = {json.dumps("" + prompt_text)};
-            navigator.clipboard.writeText(txt).then(() => {{
-                const el = document.createElement('div');
-                el.style.position='fixed'; el.style.bottom='12px'; el.style.right='12px';
-                el.style.background='#16a34a'; el.style.color='white'; el.style.padding='8px 12px'; el.style.borderRadius='6px';
-                el.style.fontFamily='system-ui, -apple-system, Segoe UI, Roboto, sans-serif'; el.style.fontSize='12px';
-                el.innerText = 'In die Zwischenablage kopiert';
-                document.body.appendChild(el);
-                setTimeout(() => document.body.removeChild(el), 1200);
-            }}).catch(err => {{ console.error('Clipboard failed', err); }});
-            </script>
-            """, height=0)
-            st.success("In die Zwischenablage kopiert.")
 
+        # Kopieren: 1) st.code hat einen Copy-Button; 2) Fallback-Button unten (robust in iFrames)
+        st.caption("Tipp: Im Code-Block oben gibt es einen Copy-Button. Falls der Browser blockt, nutze den Fallback unten.")
+        components.html(f'''
+        <div style="margin-top:8px">
+          <textarea id="pb_copy" style="position:absolute; left:-9999px;">{prompt_text}</textarea>
+          <button style="padding:6px 10px"
+            onclick="const el=document.getElementById('pb_copy'); el.select(); document.execCommand('copy');
+                     this.innerText='Kopiert!'; setTimeout(()=>this.innerText='In die Zwischenablage kopieren (Fallback)',1200);">
+            In die Zwischenablage kopieren (Fallback)
+          </button>
+        </div>
+        ''', height=40)
 
 # ------------------------------------------------------------
-# 4) TESTS (ohne Streamlit‑Import)
+# 4) TESTS (ohne Streamlit-Import)
 # ------------------------------------------------------------
 
 def _test_compose_prompt_minimal() -> None:
@@ -488,33 +537,28 @@ def _test_compose_prompt_minimal() -> None:
     assert "Bereich: Elementarpädagogik" in out
     assert "Auftrag: Konzept Kinderaktivität" in out
 
-
 def _test_compose_prompt_full_fields() -> None:
     ws = WizardState(selections={
         "Rolle": "Praxisanleiter:in",
         "Bereich": "Elementarpädagogik",
         "Auftrag": "Anleitung planen",
-        "Kompetenzziel": "Beobachtungsbogen anwenden",
+        "Kompetenzziel": ["Beobachtungsbogen anwenden", "Dokumentation nach QM-Standard"],
         "Aufgabenbeschreibung": "Kurzanleitung für Praktikant:in",
-        "Evaluationskriterium": "Checkliste vollständig",
+        "Evaluationskriterium": ["Checkliste vollständig", "SMART-Ziel erreicht"],
     })
     out = ws.compose_prompt()
-    assert "Kompetenzziel: Beobachtungsbogen anwenden" in out
-    assert "Evaluationskriterium: Checkliste vollständig" in out
-
+    assert "Kompetenzziel: Beobachtungsbogen anwenden, Dokumentation nach QM-Standard" in out
+    assert "Evaluationskriterium: Checkliste vollständig, SMART-Ziel erreicht" in out
 
 def _test_domain_tree_structure() -> None:
     assert "Bereich" in DOMAIN_TREE
     assert "Elementarpädagogik" in DOMAIN_TREE["Bereich"]
     assert "Rolle" in DOMAIN_TREE["Bereich"]["Elementarpädagogik"]
 
-# weitere sinnvolle Tests
-
 def _test_missing_fields_blank() -> None:
     ws = WizardState(selections={"Rolle": "Erzieherin"})
     out = ws.compose_prompt()
     assert "Rolle: Erzieherin" in out and "Bereich:" in out
-
 
 def _test_multiline_freetext() -> None:
     ws = WizardState(selections={
@@ -526,7 +570,6 @@ def _test_multiline_freetext() -> None:
     out = ws.compose_prompt()
     assert "Papier" in out and "Stifte" in out and "Schere" in out
 
-
 def _test_build_steps_leaf_fields() -> None:
     node = DOMAIN_TREE["Bereich"]["Elementarpädagogik"]["Rolle"]["Erzieherin"]["Auftrag"]["Konzept Kinderaktivität"]
     steps = build_steps_from_node(node)
@@ -534,27 +577,26 @@ def _test_build_steps_leaf_fields() -> None:
     for k in ["Zielgruppe", "Thema", "Rahmen", "Dauer (Minuten)"]:
         assert k in keys
 
-
 def _test_validate_core_and_numeric() -> None:
     sel = {"Bereich": "Elementarpädagogik", "Rolle": "Erzieherin", "Auftrag": "Konzept Kinderaktivität", "Dauer (Minuten)": "0"}
     issues = validate(sel)
     assert any("Dauer (Minuten): muss ≥" in m for m in issues)
-
 
 def _test_validate_required_missing() -> None:
     sel = {"Bereich": "Elementarpädagogik", "Rolle": "Erzieherin", "Auftrag": "Konzept Kinderaktivität"}
     issues = validate(sel)
     assert any("Zielgruppe" in m for m in issues) and any("Thema" in m for m in issues)
 
-
 def _test_multiselect_storage() -> None:
-    sel = {"Bereich": "Elementarpädagogik", "Rolle": "Erzieherin", "Auftrag": "Konzept Kinderaktivität", "Thema": ["Sprache", "Motorik"], "Rahmen": ["Drinnen"], "Zielgruppe": "3–4 Jahre", "Dauer (Minuten)": "30"}
+    sel = {
+        "Bereich": "Elementarpädagogik", "Rolle": "Erzieherin", "Auftrag": "Konzept Kinderaktivität",
+        "Thema": ["Sprache", "Motorik"], "Rahmen": ["Drinnen"], "Zielgruppe": "3–4 Jahre", "Dauer (Minuten)": "30"
+    }
     issues = validate(sel)
     assert not issues
     ws = WizardState(selections=sel)
     out = ws.compose_prompt()
     assert "Thema: Sprache, Motorik" in out and "Rahmen: Drinnen" in out
-
 
 def run_tests() -> int:
     tests = [
@@ -582,9 +624,8 @@ def run_tests() -> int:
     print(f"Tests: {total}, Failures: {failures}, Passed: {total - failures}")
     return failures
 
-
 # ------------------------------------------------------------
-# 5) ENTRY POINT — streamlit‑freundlich
+# 5) ENTRY POINT — streamlit-freundlich
 # ------------------------------------------------------------
 
 def _run_cli() -> None:
@@ -597,9 +638,9 @@ def _run_cli() -> None:
         import streamlit as st  # noqa: F401
         run_streamlit_app()
     except Exception as e:
-        print("Dieses Modul ist für Streamlit gedacht. Starte die Web‑App mit:\n\n    streamlit run prompt_builder.py\n\nOder führe Tests aus mit:\n\n    python prompt_builder.py --test\n")
+        print("Dieses Modul ist für Streamlit gedacht. Starte die Web-App mit:\n\n    streamlit run prompt_builder.py\n")
+        print("Oder führe Tests aus mit:\n\n    python prompt_builder.py --test\n")
         print(f"[Info] Streamlit konnte nicht gestartet werden: {e}")
-
 
 if __name__ == "__main__":
     _run_cli()
